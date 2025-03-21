@@ -27,6 +27,21 @@ void print(InputIter first, InputIter last) {
 	}
 }
 
+class Elem {
+	int data;
+	uint32_t watch;
+	static size_t elem_counter;
+public:
+	Elem(const Elem&) = delete;
+	Elem& operator=(const Elem&) = delete;
+	explicit Elem(int value) : data(value), watch(0xDEADBEEF) { ++elem_counter; }
+	Elem(Elem&& e) noexcept {  data = e.data; watch = e.watch; ++elem_counter; }
+	Elem& operator=(Elem&& e) noexcept {  data = e.data; watch = e.watch; }
+	bool operator<(const Elem& e) const {  return data < e.data; }
+	~Elem() {  watch = 0; --elem_counter; }
+	static size_t count() { return elem_counter; }
+};
+
 int main() {
 
 	const size_t sz = 15;
@@ -45,7 +60,6 @@ int main() {
 	Binary_Search_Tree<int> bst;
 	cout << bst.size() << endl;
 	cout << " -------------------------------- \n";
-
 
 	#ifdef _WIN32
 		system("pause");

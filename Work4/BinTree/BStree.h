@@ -36,7 +36,9 @@ class Binary_Search_Tree
 		Node* right;
 		//  Хранимый в узле ключ
 		T data;
-		Node(T value = T(), Node* p = nullptr, Node* l = nullptr, Node* r = nullptr) : parent(p), data(value), left(l), right(r) {}
+		//Признак isNill
+		bool isNill;
+		Node(T value = T(), Node* p = nullptr, Node* l = nullptr, Node* r = nullptr, bool nill = false) : parent(p), data(value), left(l), right(r), isNill(nill) {}
 	};
 
 	//  Стандартные контейнеры позволяют указать пользовательский аллокатор, который используется для
@@ -80,8 +82,8 @@ public:
 	//using iterator = typename _Mybase::iterator;   //  Не нужно! Явно определили iterator внутри данного класса
 	class iterator;   //  Предварительное объявление класса iterator, т.к. он определён ниже
 	using const_iterator = iterator;
-	using reverse_iterator = std::reverse_iterator<iterator>;
-	using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+	class reverse_iterator;
+	using const_reverse_iterator = reverse_iterator;
 
 private:
 	// Указательно на фиктивную вершину
@@ -106,6 +108,8 @@ private:
 		std::allocator_traits<AllocType>::construct(Alc, &(dummy->right));
 		dummy->right = dummy;
 		
+		std::allocator_traits<AllocType>::construct(Alc, &(dummy->isNill));
+		dummy->isNill = true;
 		//  Возвращаем указатель на созданную вершину
 		return dummy;
 	}
@@ -129,7 +133,10 @@ private:
 
 		//  Конструируем поле данных
 		std::allocator_traits<AllocType>::construct(Alc, &(new_node->data), std::forward<T>(elem));
+		//*new_node = elem;
 
+		std::allocator_traits<AllocType>::construct(Alc, &(new_node->isNill));
+		new_node->isNill = false;
 		//  Возвращаем указатель на созданную вершину
 		return new_node;
 	}
@@ -139,6 +146,7 @@ private:
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->parent));
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->left));
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->right));
+		std::allocator_traits<AllocType>::destroy(Alc, &(node->isNill));
 		std::allocator_traits<AllocType>::deallocate(Alc, node, 1);
 	}
 	
@@ -147,6 +155,7 @@ private:
 		//  Тут удаляем поле данных (вызывается деструктор), а остальное удаляем так же, как и фиктивную
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->data));
 		delete_dummy(node);
+		tree_size--;
 	}
 
 public:
@@ -165,39 +174,50 @@ public:
 		{
 			return data;
 		}
-
-		//  Родительский узел дерева
+		inline bool isNill()
+		{
+			return data->isNill; 
+		}
+		// Родительский узел дерева
 		inline iterator Parent() const noexcept
 		{
-			throw std::exception("Not implemented!");
+			return iterator(data->parent);
 		}
-		//  Левый дочерний узел (если отсутствует, то фиктивная вершина)
+		// Левый дочерний узел (если отсутствует, то фиктивная вершина)
 		inline iterator Left() const noexcept
 		{
-			throw std::exception("Not implemented!");
+			return iterator(data->left);
 		}
-		//  Правый дочерний узел (если отсутствует, то фиктивная вершина)
+		// Правый дочерний узел (если отсутствует, то фиктивная вершина)
 		inline iterator Right() const noexcept
 		{
-			throw std::exception("Not implemented!");
+			return iterator(data->right);
 		}
-		//  Является ли узел дерева левым у своего родителя
+		// Является ли узел дерева левым у своего родителя
 		inline bool IsLeft() const noexcept
 		{
-			throw std::exception("Not implemented!");
+			Node* p = data->parent;
+			return p->left == data;
 		}
-		//  Является ли узел дерева правым у своего родителя
+		// Является ли узел дерева правым у своего родителя
 		inline bool IsRight() const noexcept
 		{
-			throw std::exception("Not implemented!");
+			Node* p = data->parent;
+			return p->right == data;
 		}
-		//  Поиск «самого левого» элемента
+		// Поиск «самого левого» элемента (относительно текущего)
 		iterator GetMin() {
-			throw std::exception("Not implemented!");
+			Node* p = data;
+			while (!p->left->isNill)
+				p = p->left;
+			return iterator(p);
 		}
-		//  Поиск «самого правого» элемента
+		// Поиск «самого правого» элемента (относительно текущего)
 		iterator GetMax() {
-			throw std::exception("Not implemented!");
+			Node* p = data;
+			while (!p->right->isNill)
+				p = p->right;
+			return iterator(p);
 		}
 	public:
 		//  Определяем стандартные типы в соответствии с требованиями стандарта к двунаправленным итераторам
@@ -212,36 +232,83 @@ public:
 		{
 			return data->data;
 		}
-
-		//  Преинкремент - следующий элемент множества
+		inline const T operator->() const
+		{
+			return data->data;
+		}
+		// Преинкремент - следующий элемент множества
 		iterator & operator++()
 		{
-			throw std::exception("Not implemented!");
+			if (data->isNill)
+			{
+				iterator begin = iterator(data->parent);
+				data = begin.GetMax().data;
+			}
+			else if (!data->right->isNill)
+			{
+				data = data->right;
+				while (!data->left->isNill)
+					data = data->left;
+			}
+			else
+			{
+				Node* parent = data->parent;
+				while (!parent->isNill && parent->left != data)
+				{
+					data = parent;
+					parent = parent->parent;
+				}
+				data = parent;
+			}
 			return *this;
 		}
-		//  Предекремент - переход на предыдущий элемент множества
+		// Предекремент - переход на предыдущий элемент множества
 		iterator & operator--()
 		{
-			throw std::exception("Not implemented!");
+			if (data->isNill)
+			{
+				iterator begin = iterator(data->parent);
+				data = begin.GetMax().data;
+			}
+			else if (!data->left->isNill)
+			{
+				data = data->left;
+				while (!data->right->isNill)
+					data = data->right;
+			}
+			else
+			{
+				Node* parent = data->parent;
+				while (!parent->isNill && parent->right != data)
+				{
+					data = parent;
+					parent = parent->parent;
+				}
+				data = parent;
+			}
 			return *this;
 		}
-		//  Постинкремент
+		// Постинкремент
 		iterator operator++(int) {
-			throw std::exception("Not implemented!");
+			auto temp = *this;
+			++*this;
+			return temp;
 		}
-		//  Постдекремент
+		// Постдекремент
 		iterator operator--(int) {
-			throw std::exception("Not implemented!");
+			auto temp = *this;
+			--*this;
+			return temp;
 		}
-
+		
 		friend bool operator != (const iterator & it_1, const iterator & it_2)
 		{
-			throw std::exception("Not implemented!");
+			return !(it_1 == it_2);
 		}
 
 		friend bool operator == (const iterator & it_1, const iterator & it_2)
 		{
-			throw std::exception("Not implemented!");
+			return (const_cast<iterator&>(it_1))._data() == (const_cast<iterator&>(it_2))._data();
 		}
 		
 		//  Эти операции не допускаются между прямыми и обратными итераторами
@@ -250,12 +317,81 @@ public:
 		bool operator!=(const reverse_iterator& it) = delete;
 		iterator(const reverse_iterator& it) = delete;
 	};
-	
-	iterator begin() const noexcept { return iterator(dummy->left);	}
-	iterator end() const noexcept { return iterator(dummy);  }
+	class reverse_iterator
+	{
+		friend class Binary_Search_Tree;
+	protected: 
+		iterator data;
+	public :
+		explicit reverse_iterator(iterator it) : data(it) {	};
 
-	reverse_iterator rbegin() const	noexcept { return reverse_iterator(iterator(dummy->right)); }
-	reverse_iterator rend() const noexcept { return reverse_iterator(iterator(dummy)); }
+		//  Определяем стандартные типы в соответствии с требованиями стандарта к двунаправленным итераторам
+		using iterator_category = std::bidirectional_iterator_tag;
+		using value_type = Binary_Search_Tree::value_type;
+		using difference_type = Binary_Search_Tree::difference_type;
+		using pointer = Binary_Search_Tree::pointer;
+		using reference = Binary_Search_Tree::reference;
+
+		//  Значение в узле, на который указывает итератор
+		inline const T& operator*() const {
+			return *data;
+		}
+		reverse_iterator& operator++() {
+			--data;
+			return *this;
+		}
+		reverse_iterator& operator--() {
+			++data;
+			return *this;
+		}
+		reverse_iterator operator++(int) {
+			auto temp = *this;
+			--*this;
+			return temp;
+		}
+		reverse_iterator operator--(int) {
+			auto temp = *this;
+			++*this;
+			return temp;
+		}
+		friend bool operator != (const reverse_iterator& it_1, const reverse_iterator& it_2) {
+			return !(it_1 == it_2);
+		}
+
+		friend bool operator == (const reverse_iterator& it_1, const reverse_iterator& it_2) {
+			return it_1.data == it_2.data;
+		}
+	};
+	//Самый левый элемент
+	iterator begin() const noexcept {
+		iterator begin = iterator(dummy->parent);
+		if (begin.isNill())
+			return end();
+		/*
+		iterator next = --begin;
+		while (!next.isNill())
+		{
+			begin = next;
+			--next;
+		}*/
+		return begin.GetMin();
+	}
+	iterator end() const noexcept { return iterator(dummy);  }
+	//Самый правый элемент
+	reverse_iterator rbegin() const	noexcept { 
+		iterator begin = iterator(dummy->parent);
+		if (begin.isNill())
+			return rend();
+		/*
+		iterator next = ++begin;
+		while (!next.isNill())
+		{
+			begin = next;
+			++next;
+		}*/
+		return reverse_iterator(begin.GetMax());
+	}
+	reverse_iterator rend() const noexcept { return reverse_iterator(end()); }
 
 	Binary_Search_Tree(Compare comparator = Compare(), AllocType alloc = AllocType())
 		: dummy(make_dummy()), cmp(comparator), Alc(alloc) {}
@@ -273,8 +409,14 @@ public:
 	inline bool empty() const noexcept { return tree_size == 0; }
 
 private:
-	template <class RandomIterator>
-	void ordered_insert(RandomIterator first, RandomIterator last, iterator position) {
+	template <class RandomIterator, typename T = typename std::iterator_traits<RandomIterator>::value_type>
+	typename std::enable_if<
+		std::is_same<
+		typename std::iterator_traits<RandomIterator>::iterator_category,
+		std::random_access_iterator_tag
+		>::value
+	>::type
+	ordered_insert(RandomIterator first, RandomIterator last, iterator position) {
 		if (first >= last) return;
 		RandomIterator center = first + (last - first)/2 ;
 		iterator new_pos = insert(position, *center);  //  итератор на вставленный элемент
@@ -290,10 +432,11 @@ public:
 		if (std::is_same<typename std::iterator_traits<InputIterator>::iterator_category, typename std::random_access_iterator_tag>::value) {
 			//  Если итератор произвольного доступа, то есть надежда, что диапазон отсортирован
 			//    а даже если и нет - не важно, всё равно попробуем метод деления пополам для вставки
-			ordered_insert(first, last, end());
+			std::vector<T> temp_vec(first, last);
+			ordered_insert(temp_vec.begin(), temp_vec.end(), end());
 		}
 		else
-			std::for_each(first, last, [this](T x) { insert(x); });
+			std::for_each(first, last, [this](T x) { insert(std::move(x)); });
 	}
 
 	Binary_Search_Tree(const Binary_Search_Tree & tree) : dummy(make_dummy())
@@ -359,18 +502,46 @@ public:
 		std::swap(tree_size, other.tree_size);
 	}
 
-	//  Вставка элемента по значению. 
+	// Вставка элемента по значению. 
 	std::pair<iterator, bool> insert(const T & value)
 	{
-		throw std::exception("Not implemented!");
-		//return std::make_pair(iterator(new_node), true);
+		Node* curent = dummy;
+		Node* next = curent->parent;
+		bool flag = true;
+		while (!next->isNill)
+		{
+			curent = next;
+			if (cmp(next->data, value))
+				next = next->right;
+			else if (cmp(value, next->data))
+				next = next->left;
+			else 
+			{ 
+				flag = false;
+				break; 
+			}
+		}
+		if (flag)
+		{
+			Node* new_node = make_node(value, curent, dummy, dummy);
+			if (tree_size == 0)
+				dummy->parent = new_node;
+			else 
+			{
+				if (cmp(value, curent->data))
+					curent->left = new_node;
+				else curent->right = new_node;
+			}
+			tree_size++;
+			return std::make_pair(iterator(new_node), flag);
+		}
+		else return std::make_pair(iterator(curent), flag);
 	}	
-
+	//???
 	iterator insert(const_iterator position, const value_type& x) {
 		//  Проверяем, корректно ли задана позиция для вставки: ... prev -> x -> position -> ...
 		//  2 5 6 7 10 11 15,    x = 8
-		throw std::exception("Not implemented!");
-		//  Всё???
+		return insert(std::move(x)).first;
 	}
 
 	//  Не самый лучший вариант.
@@ -379,28 +550,37 @@ public:
 		while (first != last) insert(*first++);
 	}
 
-	iterator find(const value_type& value) const {
+	iterator find(const value_type& value) const { 
 		
-		iterator current = iterator(dummy->parent);
+		iterator current = iterator(dummy->parent); 
 
-		throw std::exception("Not implemented!");
+		while (!current.isNill())
+		{
+			if (!cmp(*current, value) && !cmp(value, *current))
+				return current;
+			else if (cmp(*current, value))
+				++current;
+			else --current;
+		}
 		return current;
 	}
-
+	//поднимается от самого маленького
 	iterator lower_bound(const value_type& key) {
-		iterator current{ dummy->parent }, result{ dummy->parent };
-
-		throw std::exception("Not implemented!");
-		return result;
+		iterator it = ++begin();
+		while (*it <= key && it != end())
+			++it;
+		return it == end()? rbegin().data: --it;
 	}
 
 	const_iterator lower_bound(const value_type& key) const {
 		return const_iterator(const_cast<Binary_Search_Tree *>(this)->lower_bound(key));
 	}
-
+	//опускается от самого большого
 	iterator upper_bound(const value_type& key) {
-
-		throw std::exception("Not implemented!");
+		iterator it = --rbegin().data;
+		while (*it > key && it != end())
+			--it;
+		return it == end()? begin(): ++it;
 	}
 
 	const_iterator upper_bound(const value_type& key) const {
@@ -410,55 +590,81 @@ public:
 	size_type count(const value_type& key) const {
 		return find(key) != end() ? 1 : 0;
 	}
-
+	
+	// Что он делает? (Возвращает диапозон элементов с одинаковым ключом, но таких ведь не может быть в БДП?)
 	std::pair<const_iterator, const_iterator> equal_range(const value_type& key) const {
-		throw std::exception("Not implemented!");
+		return std::make_pair(lower_bound(key), upper_bound(key));
 	}
 
 protected:
-	//  Удаление листа дерева. Возвращает количество удалённых элементов
+	//!!! Удаление листа дерева. Возвращает количество удалённых элементов
 	size_type delete_leaf(iterator leaf) {
 		#ifdef _DEBUG
-		if (leaf.isNil()) return 0; // Стоит потом убрать, так как уже проверяем, что итератор валидный в erase
+		if (leaf.isNill()) return 0; // Стоит потом убрать, так как уже проверяем, что итератор валидный в erase
 		#endif
-		throw std::exception("Not implemented!");
+		iterator parent = leaf.Parent(); 
+		delete_node(leaf.data);
+		Node* p = parent.data;
+		if (p->left == leaf.data) {
+			p->left = dummy;
+		}
+		else if (p->right == leaf.data) {
+			p->right = dummy;
+		}
 		return 1;
 	}
 
-	//  Меняет местами текущий узел и максимальный в левом поддеревею Возвращает тот же итератор, но теперь он без правого поддерева
-	iterator replace_with_max_left(iterator node)
-	{
-		//  node имеет обоих дочерних - левое и правое поддерево, т.е. из особых вершин может быть только корнем
-
-		//  Находим максимальный элемент слева. У него нет правого дочернего, и он не может быть корнем или самым правым
-		iterator left_max = node.Left().GetMax();
-
-		throw std::exception("Not implemented!");
-		return node;
-	} 	
-
-
 public:
-	//  Удаление элемента, заданного итератором. Возвращает количество удалённых элементов (для set - 0/1)
+	//!!!  Удаление элемента, заданного итератором. Возвращает количество удалённых элементов (для set - 0/1)
 	iterator erase(iterator elem) {
 		//  Если фиктивный элемент, то ошибка - такого не должно происходить
-		if (elem.isNil()) return iterator(elem);
-		
-		throw std::exception("Not implemented!");
-		replace_with_max_left(elem);
+		if (elem.isNill()) return iterator(elem);
 
-		return erase(elem);
+		if (elem.Left().isNill() && elem.Right().isNill())
+		{
+			delete_leaf(elem);
+			return end();
+		}
+		else if (!elem.Left().isNill() && !elem.Right().isNill())
+		{
+			iterator next = elem.Right().GetMin();
+			std::swap(elem.data->data, next.data->data);
+			return erase(next);
+		}
+		else 
+		{
+			Node* next = !elem.Left().isNill()? elem.Left().data : elem.Right().data;
+			Node* deleted = elem.data;
+			//std::swap(elem.data->data, next.data->data);
+			//return erase(next);
+			if (deleted->parent->isNill)
+			{
+				next->parent = dummy;
+				dummy->parent = next;
+			}
+			else if (elem.IsRight())
+			{
+				deleted->parent->right = next;
+				next->parent = deleted->parent;
+			}
+			else
+			{
+				deleted->parent->left = next;
+				next->parent = deleted->parent;
+			}
+			delete_node(deleted);
+			return iterator(next);
+		}
 	}
 	
 	size_type erase(const value_type& elem) {
-		iterator it = find(elem);
-		if (it.isNil())
+		iterator it = find(elem); 
+		if (it.isNill())
 			return 0;
 		erase(it);
 		return 1;
 	}
-	
-	//  Проверить!!!
+
 	iterator erase(const_iterator first, const_iterator last) {
 		while (first != last)
 			first = erase(first);
@@ -488,7 +694,7 @@ private:
 	//  Рекурсивное удаление узлов дерева, не включая фиктивную вершину
 	void Free_nodes(Node* node)
 	{ 
-		if (node != dummy)
+		if (!node->isNill)
 		{
 			Free_nodes(node->left);
 			Free_nodes(node->right);
