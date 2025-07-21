@@ -13,17 +13,26 @@
 #include <initializer_list>
 #include <functional>
 #include <exception>
-
-template<typename T, class Compare = std::less<T>, class Allocator = std::allocator<T>>
-class Binary_Search_Tree
-{
-	//  Объект для сравнения ключей. Должен удовлетворять требованию строго слабого порядка, т.е. иметь свойства:
+#include <stack>
+#include <iomanip>
+//  Объект для сравнения ключей. Должен удовлетворять требованию строго слабого порядка, т.е. иметь свойства:
 	//    1. Для любого x => cmp(x,x) == false (антирефлексивность)
 	//    2. Если cmp(x,y) == true  =>  cmp(y,x) == false (асимметричность)
 	//    3. Если cmp(x,y) == cmp(y,z) == true  =>  cmp(x,z) == true  (транзитивность)
 	//    4. Если cmp(x,y) == cmp(y,z) == false  =>  cmp(x,z) == false  (транзитивность несравнимости)
 	//  Этим свойством обладает, к примеру, оператор <. Если нужно использовать оператор <= , который не обладает
 	//     нужными свойствами, то можно использовать его отрицание и рассматривать дерево как инвертированное от требуемого.
+//  Стандартные контейнеры позволяют указать пользовательский аллокатор, который используется для
+	//  выделения и освобождения памяти под узлы (реализует замену операций new/delete). К сожалению, есть 
+	//  типичная проблема – при создании дерева с ключами типа T параметром шаблона традиционно указывается
+	//  std::allocator<T>, который умеет выделять память под T, а нам нужен аллокатор для выделения/освобождения
+	//  памяти под Node, т.е. std::allocator<Node>. Поэтому параметр шаблона аллокатора нужно изменить
+	//  с T на Node, что и делается ниже. А вообще это одна из самых малополезных возможностей - обычно мы
+	//  пользовательские аллокаторы не пишем, это редкость.
+template<typename T, class Compare = std::less<T>, class Allocator = std::allocator<T>>
+class AVL_Tree
+{
+	
 	Compare cmp = Compare();
 
 	//  Узел бинарного дерева, хранит ключ, три указателя и признак nil для обозначения фиктивной вершины
@@ -38,21 +47,18 @@ class Binary_Search_Tree
 		T data;
 		//Признак isNill
 		bool isNill;
+		//Баланс фактор
+		unsigned char hight = 1;
 		Node(T value = T(), Node* p = nullptr, Node* l = nullptr, Node* r = nullptr, bool nill = false) : parent(p), data(value), left(l), right(r), isNill(nill) {}
 	};
 
-	//  Стандартные контейнеры позволяют указать пользовательский аллокатор, который используется для
-	//  выделения и освобождения памяти под узлы (реализует замену операций new/delete). К сожалению, есть 
-	//  типичная проблема – при создании дерева с ключами типа T параметром шаблона традиционно указывается
-	//  std::allocator<T>, который умеет выделять память под T, а нам нужен аллокатор для выделения/освобождения
-	//  памяти под Node, т.е. std::allocator<Node>. Поэтому параметр шаблона аллокатора нужно изменить
-	//  с T на Node, что и делается ниже. А вообще это одна из самых малополезных возможностей - обычно мы
-	//  пользовательские аллокаторы не пишем, это редкость.
+	
 
 	//  Определяем тип аллокатора для Node (Allocator для T нам не подходит)
 	using AllocType = typename std::allocator_traits<Allocator>::template rebind_alloc < Node >;
 	//  Аллокатор для выделения памяти под объекты Node
 	AllocType Alc;
+	
 	
 	//  Рекурсивное клонирование дерева (не включая фиктивную вершину)
 	//  Идея так себе - вроде пользуемся стандартной вставкой, хотя явное клонирование вершин было бы лучше
@@ -79,7 +85,6 @@ public:
 	using const_pointer = typename const pointer;
 	using reference = value_type & ;
 	using const_reference = const value_type &;
-	//using iterator = typename _Mybase::iterator;   //  Не нужно! Явно определили iterator внутри данного класса
 	class iterator;   //  Предварительное объявление класса iterator, т.к. он определён ниже
 	using const_iterator = iterator;
 	class reverse_iterator;
@@ -88,8 +93,9 @@ public:
 private:
 	// Указательно на фиктивную вершину
 	Node* dummy;
-
-	//  Количесто элементов в дереве
+	//Счётчик для подсчёта кол-ва вращений
+	int balanceCounter = 0;
+	//Количесто элементов в дереве
 	size_type tree_size = 0;
 
 	// Создание фиктивной вершины - используется только при создании дерева
@@ -108,6 +114,9 @@ private:
 		std::allocator_traits<AllocType>::construct(Alc, &(dummy->right));
 		dummy->right = dummy;
 		
+		std::allocator_traits<AllocType>::construct(Alc, &(dummy->hight));
+		dummy->hight = 0;
+
 		std::allocator_traits<AllocType>::construct(Alc, &(dummy->isNill));
 		dummy->isNill = true;
 		//  Возвращаем указатель на созданную вершину
@@ -137,6 +146,10 @@ private:
 
 		std::allocator_traits<AllocType>::construct(Alc, &(new_node->isNill));
 		new_node->isNill = false;
+
+		std::allocator_traits<AllocType>::construct(Alc, &(new_node->hight));
+		fixHight(new_node);
+
 		//  Возвращаем указатель на созданную вершину
 		return new_node;
 	}
@@ -147,6 +160,7 @@ private:
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->left));
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->right));
 		std::allocator_traits<AllocType>::destroy(Alc, &(node->isNill));
+		std::allocator_traits<AllocType>::destroy(Alc, &(node->hight));
 		std::allocator_traits<AllocType>::deallocate(Alc, node, 1);
 	}
 	
@@ -162,7 +176,7 @@ public:
 	//  Класс итератора для дерева поиска
 	class iterator 
 	{
-		friend class Binary_Search_Tree;
+		friend class AVL_Tree;
 	protected:
 		//  Указатель на узел дерева
 		Node* data;
@@ -177,6 +191,10 @@ public:
 		inline bool isNill()
 		{
 			return data->isNill; 
+		}
+		inline unsigned char hight()
+		{
+			return data->hight;
 		}
 		// Родительский узел дерева
 		inline iterator Parent() const noexcept
@@ -222,10 +240,10 @@ public:
 	public:
 		//  Определяем стандартные типы в соответствии с требованиями стандарта к двунаправленным итераторам
 		using iterator_category = std::bidirectional_iterator_tag;
-		using value_type = Binary_Search_Tree::value_type;
-		using difference_type = Binary_Search_Tree::difference_type;
-		using pointer = Binary_Search_Tree::pointer;
-		using reference = Binary_Search_Tree::reference;
+		using value_type = AVL_Tree::value_type;
+		using difference_type = AVL_Tree::difference_type;
+		using pointer = AVL_Tree::pointer;
+		using reference = AVL_Tree::reference;
 
 		//  Значение в узле, на который указывает итератор
 		inline const T& operator*() const
@@ -319,7 +337,7 @@ public:
 	};
 	class reverse_iterator
 	{
-		friend class Binary_Search_Tree;
+		friend class AVL_Tree;
 	protected: 
 		iterator data;
 	public :
@@ -327,10 +345,10 @@ public:
 
 		//  Определяем стандартные типы в соответствии с требованиями стандарта к двунаправленным итераторам
 		using iterator_category = std::bidirectional_iterator_tag;
-		using value_type = Binary_Search_Tree::value_type;
-		using difference_type = Binary_Search_Tree::difference_type;
-		using pointer = Binary_Search_Tree::pointer;
-		using reference = Binary_Search_Tree::reference;
+		using value_type = AVL_Tree::value_type;
+		using difference_type = AVL_Tree::difference_type;
+		using pointer = AVL_Tree::pointer;
+		using reference = AVL_Tree::reference;
 
 		//  Значение в узле, на который указывает итератор
 		inline const T& operator*() const {
@@ -367,13 +385,7 @@ public:
 		iterator begin = iterator(dummy->parent);
 		if (begin.isNill())
 			return end();
-		/*
-		iterator next = --begin;
-		while (!next.isNill())
-		{
-			begin = next;
-			--next;
-		}*/
+
 		return begin.GetMin();
 	}
 	iterator end() const noexcept { return iterator(dummy);  }
@@ -382,21 +394,23 @@ public:
 		iterator begin = iterator(dummy->parent);
 		if (begin.isNill())
 			return rend();
-		/*
-		iterator next = ++begin;
-		while (!next.isNill())
-		{
-			begin = next;
-			++next;
-		}*/
+
 		return reverse_iterator(begin.GetMax());
 	}
 	reverse_iterator rend() const noexcept { return reverse_iterator(end()); }
 
-	Binary_Search_Tree(Compare comparator = Compare(), AllocType alloc = AllocType())
+	AVL_Tree(Compare comparator = Compare(), AllocType alloc = AllocType())
 		: dummy(make_dummy()), cmp(comparator), Alc(alloc) {}
+	AVL_Tree(const AVL_Tree& other) : dummy(make_dummy()), cmp(other.cmp), Alc(other.Alc)
+	{
+		tree_size = 0;
+		for (auto begin = other.begin(); begin != other.end(); begin++)
+		{
+			insert(*begin);
+		}
+	}
 
-	Binary_Search_Tree(std::initializer_list<T> il) : dummy(make_dummy())
+	AVL_Tree(std::initializer_list<T> il) : dummy(make_dummy())
 	{
 		for (const auto &x : il)
 			insert(x);
@@ -407,8 +421,12 @@ public:
 	value_compare value_comp() const noexcept { return cmp; }
 
 	inline bool empty() const noexcept { return tree_size == 0; }
+	
+	inline void SetBalanceCounter() { balanceCounter = 0; }
+	int GetBalanceCounter() { return balanceCounter; }
 
 private:
+	//Будет ли работать?
 	template <class RandomIterator, typename T = typename std::iterator_traits<RandomIterator>::value_type>
 	typename std::enable_if<
 		std::is_same<
@@ -425,8 +443,8 @@ private:
 	}
 
 public:
-	template <class InputIterator>
-	Binary_Search_Tree(InputIterator first, InputIterator last, Compare comparator = Compare(), AllocType alloc = AllocType()) : dummy(make_dummy()), cmp(comparator), Alc(alloc)
+	template <class InputIterator> 
+	AVL_Tree(InputIterator first, InputIterator last, Compare comparator = Compare(), AllocType alloc = AllocType()) : dummy(make_dummy()), cmp(comparator), Alc(alloc)
 	{
 		//  Проверка - какой вид итераторов нам подали на вход
 		if (std::is_same<typename std::iterator_traits<InputIterator>::iterator_category, typename std::random_access_iterator_tag>::value) {
@@ -439,21 +457,8 @@ public:
 			std::for_each(first, last, [this](T x) { insert(std::move(x)); });
 	}
 
-	Binary_Search_Tree(const Binary_Search_Tree & tree) : dummy(make_dummy())
-	{	//  Размер задаём
-		tree_size = tree.tree_size;
-		if (tree.empty()) return;
-
-		dummy->parent = recur_copy_tree(tree.dummy->parent, tree.dummy);
-		dummy->parent->parent = dummy;
-
-		//  Осталось установить min и max
-		dummy->left = iterator(dummy->parent).GetMin()._data();
-		dummy->right = iterator(dummy->parent).GetMax()._data();
-	}
-
 	private:
-
+	 
     //  Рекурсивное копирование дерева
 	Node* recur_copy_tree(Node * source, const Node * source_dummy) 
 	{
@@ -480,63 +485,174 @@ public:
 		//  Ну и всё, можно возвращать
 		return current;
 	}
-
+	
 	public:
-	const Binary_Search_Tree & operator=(const Binary_Search_Tree &tree)
+	const AVL_Tree & operator=(const AVL_Tree& tree)
 	{
 		if (this == &tree) return *this;
 		
-		Binary_Search_Tree tmp{tree};
+		AVL_Tree tmp{tree};
 		swap(tmp);
 		
 		return *this;
 	}
 
 	size_type size() const { return tree_size; }
+	
+private:
+	int bfactor(Node* p) {
+		auto hleft = (p->left && !p->left->isNill) ? p->left->hight : 0;
+		auto hright = (p->right && !p->right->isNill) ? p->right->hight : 0;
+		return hright - hleft;
+	}
+	void fixHight(Node* p) {
+		auto hleft = (p->left && !p->left->isNill) ? p->left->hight : 0;
+		auto hright = (p->right && !p->right->isNill) ? p->right->hight : 0;
+		p->hight = (hleft > hright ? hleft : hright) + 1;
+	}
+	Node* rotateRight(Node* p)
+	{
+		Node* q = p->left;
+		Node* temp = q->right;
 
+		q->parent = p->parent;
+		if (p->parent)
+		{
+			if (iterator(p).IsLeft()) p->parent->left = q;
+			else p->parent->right = q;
+		}
+		else {
+			dummy->parent = q;
+		}
+
+		q->right = p;
+		p->left = temp;
+
+		if (temp && !temp->isNill)
+			temp->parent = p;
+		p->parent = q;
+
+		fixHight(p);
+		fixHight(q);
+		balanceCounter++;
+
+		return q;
+	}
+	Node* rotateLeft(Node* p)
+	{
+		Node* q = p->right;
+		Node* t2 = q->left;
+
+		q->parent = p->parent;
+		if (p->parent)
+		{
+			if (iterator(p).IsLeft())
+				p->parent->left = q;
+			else
+				p->parent->right = q;
+		}
+		else {
+			dummy->parent = q;
+		}
+
+		q->left = p;
+		p->right = t2;
+
+		if (t2 && !t2->isNill)
+			t2->parent = p;
+		p->parent = q;
+
+		fixHight(p);
+		fixHight(q);
+		balanceCounter++;
+
+		return q;
+	}
+	//Балансировка
+	Node* balance(Node* p)
+	{
+		fixHight(p);
+		if (bfactor(p) == 2)
+		{
+			if (bfactor(p->right) < 0)
+				p->right = rotateRight(p->right);
+			return rotateLeft(p);
+		}
+		if (bfactor(p) == -2)
+		{
+			if (bfactor(p->left) > 0) // Исправлено (было p->right)
+				p->left = rotateLeft(p->left);
+			return rotateRight(p);
+		}
+		return p;
+	}
+	void balanceFromNode(Node* p)
+	{
+		while (!p->isNill)
+		{
+			balance(p);
+			p = p->parent;
+		}
+	}
+public:
 	// Обмен содержимым двух контейнеров
-	void swap(Binary_Search_Tree & other) noexcept {
+	void swap(AVL_Tree & other) noexcept {
 		std::swap(dummy, other.dummy);
 
 		//  Обмен размера множеств
 		std::swap(tree_size, other.tree_size);
 	}
 
+public:
 	// Вставка элемента по значению. 
-	std::pair<iterator, bool> insert(const T & value)
+	std::pair<iterator, bool> insert(const T& value)
 	{
+		std::stack<Node*> forBalance;
 		Node* curent = dummy;
 		Node* next = curent->parent;
+
+		if (!next || next->isNill) { // Проверяем пустое дерево
+			Node* new_node = make_node(value, dummy, dummy, dummy);
+			dummy->parent = new_node;
+			tree_size++;
+			return std::make_pair(iterator(new_node), true);
+		}
+
 		bool flag = true;
 		while (!next->isNill)
 		{
 			curent = next;
+			forBalance.push(curent);
 			if (cmp(next->data, value))
 				next = next->right;
 			else if (cmp(value, next->data))
 				next = next->left;
-			else 
-			{ 
-				flag = false;
-				break; 
-			}
-		}
-		if (flag)
-		{
-			Node* new_node = make_node(value, curent, dummy, dummy);
-			if (tree_size == 0)
-				dummy->parent = new_node;
-			else 
+			else
 			{
-				if (cmp(value, curent->data))
-					curent->left = new_node;
-				else curent->right = new_node;
+				flag = false;
+				return std::make_pair(iterator(curent), false); // Дубликат
 			}
-			tree_size++;
-			return std::make_pair(iterator(new_node), flag);
 		}
-		else return std::make_pair(iterator(curent), flag);
-	}	
+
+		Node* new_node = make_node(value, curent, dummy, dummy);
+		if (cmp(value, curent->data))
+			curent->left = new_node;
+		else
+			curent->right = new_node;
+
+		tree_size++;
+
+		while (!forBalance.empty())
+		{
+			Node* nd = forBalance.top();
+			forBalance.pop();
+			Node* new_root = balance(nd);
+			if (dummy->parent == nd)
+				dummy->parent = new_root;
+		}
+
+		return std::make_pair(iterator(new_node), true);
+	}
 	//???
 	iterator insert(const_iterator position, const value_type& x) {
 		//  Проверяем, корректно ли задана позиция для вставки: ... prev -> x -> position -> ...
@@ -573,7 +689,7 @@ public:
 	}
 
 	const_iterator lower_bound(const value_type& key) const {
-		return const_iterator(const_cast<Binary_Search_Tree *>(this)->lower_bound(key));
+		return const_iterator(const_cast<AVL_Tree *>(this)->lower_bound(key));
 	}
 	//опускается от самого большого
 	iterator upper_bound(const value_type& key) {
@@ -584,7 +700,7 @@ public:
 	}
 
 	const_iterator upper_bound(const value_type& key) const {
-		return const_iterator(const_cast<Binary_Search_Tree*>(this)->upper_bound(key));
+		return const_iterator(const_cast<AVL_Tree*>(this)->upper_bound(key));
 	}
 
 	size_type count(const value_type& key) const {
@@ -622,8 +738,10 @@ public:
 
 		if (elem.Left().isNill() && elem.Right().isNill())
 		{
+			auto next = elem.Parent();
+			balanceFromNode(elem.Parent()._data());
 			delete_leaf(elem);
-			return end();
+			return next;
 		}
 		else if (!elem.Left().isNill() && !elem.Right().isNill())
 		{
@@ -635,8 +753,7 @@ public:
 		{
 			Node* next = !elem.Left().isNill()? elem.Left().data : elem.Right().data;
 			Node* deleted = elem.data;
-			//std::swap(elem.data->data, next.data->data);
-			//return erase(next);
+
 			if (deleted->parent->isNill)
 			{
 				next->parent = dummy;
@@ -652,6 +769,7 @@ public:
 				deleted->parent->left = next;
 				next->parent = deleted->parent;
 			}
+			balanceFromNode(deleted->parent);
 			delete_node(deleted);
 			return iterator(next);
 		}
@@ -672,7 +790,7 @@ public:
 	}
 
 	//Если передавать по ссылкам,все хорошо. Конструктор копий принескольких деревьях ломается.
-	friend bool operator== (const Binary_Search_Tree<T> &tree_1, const Binary_Search_Tree<T> & tree_2)
+	friend bool operator== (const AVL_Tree<T> &tree_1, const AVL_Tree<T> & tree_2)
 	{
 		auto i = tree_1.begin(), ii = tree_2.begin();
 		for (; (i != tree_1.end()) && (ii != tree_2.end()); ++i, ++ii)
@@ -701,24 +819,53 @@ private:
 			delete_node(node);
 		}
 	}
-	
+	void printTree(Node* root, int depth = 0, char prefix = ' ')
+	{
+		if (root->isNill) return; // Пропускаем фиктивную ноду
+
+		// Вывод правого поддерева (оно идет вверх)
+		if (!root->right->isNill) {
+			printTree(root->right, depth + 1, '/');
+		}
+
+		// Отступы для визуального эффекта
+		std::cout << std::setw(depth * 4) << " ";
+
+		// Вывод самого узла
+		std::cout << prefix << "[" << root->data << "]" << std::endl;
+
+		// Вывод левого поддерева (оно идет вниз)
+		if (!root->left->isNill) {
+			printTree(root->left, depth + 1, '\\');
+		}
+	}
 public:
-	~Binary_Search_Tree()
+	~AVL_Tree()
 	{
 		clear(); // рекурсивный деструктор
 		delete_dummy(dummy);
 	}
+
+	
+	void printTree()
+	{
+		printTree(dummy->parent, 0, ' ');
+	}
 };
 
 template <class Key, class Compare, class Allocator>
-void swap(Binary_Search_Tree<Key, Compare, Allocator>& x, Binary_Search_Tree<Key, Compare, Allocator>& y) noexcept(noexcept(x.swap(y))) {
+void swap(AVL_Tree<Key, Compare, Allocator>& x, AVL_Tree<Key, Compare, Allocator>& y) noexcept(noexcept(x.swap(y))) {
 	x.swap(y);
 };
-
-
+/*
 template <class Key, class Compare, class Allocator>
-bool operator==(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binary_Search_Tree<Key, Compare, Allocator>& y) {
-	typename Binary_Search_Tree<Key, Compare, Allocator>::const_iterator it1{ x.begin() }, it2{ y.begin() };
+void AddInTxtFile(const AVL_Tree<Key, Compare, Allocator>& x)
+{
+	
+}*/
+template <class Key, class Compare, class Allocator>
+bool operator==(const AVL_Tree<Key, Compare, Allocator>& x, const AVL_Tree<Key, Compare, Allocator>& y) {
+	typename AVL_Tree<Key, Compare, Allocator>::const_iterator it1{ x.begin() }, it2{ y.begin() };
 	while (it1 != x.end() && it2 != y.end() && *it1 == *it2) {
 		++it1; ++it2;
 	}
@@ -727,9 +874,9 @@ bool operator==(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Bina
 }
 
 template <class Key, class Compare, class Allocator>
-bool operator<(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binary_Search_Tree<Key, Compare, Allocator>& y) {
+bool operator<(const AVL_Tree<Key, Compare, Allocator>& x, const AVL_Tree<Key, Compare, Allocator>& y) {
 	
-	typename Binary_Search_Tree<Key, Compare, Allocator>::const_iterator it1{ x.begin() }, it2{ y.begin() };
+	typename AVL_Tree<Key, Compare, Allocator>::const_iterator it1{ x.begin() }, it2{ y.begin() };
 	while (it1 != x.end() && it2 != y.end() && *it1 == *it2) {
 		++it1; ++it2;
 	}
@@ -741,22 +888,22 @@ bool operator<(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binar
 }
 
 template <class Key, class Compare, class Allocator>
-bool operator!=(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binary_Search_Tree<Key, Compare, Allocator>& y) {
+bool operator!=(const AVL_Tree<Key, Compare, Allocator>& x, const AVL_Tree<Key, Compare, Allocator>& y) {
 	return !(x == y);
 }
 
 template <class Key, class Compare, class Allocator>
-bool operator>(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binary_Search_Tree<Key, Compare, Allocator>& y) {
+bool operator>(const AVL_Tree<Key, Compare, Allocator>& x, const AVL_Tree<Key, Compare, Allocator>& y) {
 	return y < x;
 }
 
 template <class Key, class Compare, class Allocator>
-bool operator>=(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binary_Search_Tree<Key, Compare, Allocator>& y) {
+bool operator>=(const AVL_Tree<Key, Compare, Allocator>& x, const AVL_Tree<Key, Compare, Allocator>& y) {
 	return !(x<y);
 }
 
 template <class Key, class Compare, class Allocator>
-bool operator<=(const Binary_Search_Tree<Key, Compare, Allocator>& x, const Binary_Search_Tree<Key, Compare, Allocator>& y) {
+bool operator<=(const AVL_Tree<Key, Compare, Allocator>& x, const AVL_Tree<Key, Compare, Allocator>& y) {
 	return   !(y < x);
 }
 
